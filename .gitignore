@@ -53,3 +53,23 @@ dkms.conf
 
 # debug information files
 *.dwo
+
+# ===== Project-specific: compiled binaries (no extension) =====
+server
+client
+mq_sender_test
+mq_receiver_test
+mq_minimal_test
+test_common
+
+# ===== Log files จากการทดลอง =====
+*.log
+receiver_output.log
+
+# ===== Editor / OS junk =====
+.vscode/
+.idea/
+.DS_Store
+
+# ===== ผลลัพธ์การทดลอง =====
+experiments/results/*.txt
