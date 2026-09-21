@@ -34,10 +34,10 @@ typedef struct {
     int status;   /* AVAILABLE / RESERVED                                   */
     int owner;    /* client_id ของเจ้าของ (0 = ไม่มี)                        */
     int grants;   /* จำนวนครั้งที่ถูกจองสำเร็จ (ถ้า > 1 แสดงว่าเกิด Race)      */
-} Resource;
+} Seat;
 
 /* ===== SHARED DATA: ตารางที่ Worker ทุกตัวเข้าถึงพร้อมกัน ===== */
-static Resource table[NUM_RESOURCES + 1];
+static Seat seats[NUM_SEATS + 1];
 
 /* Mutex ป้องกัน Critical Section (ตารางที่นั่ง) */
 static pthread_mutex_t table_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -126,11 +126,11 @@ static void cmd_list(int wid, char *out, size_t n)
 {
     cs_enter(wid);
     size_t off = (size_t)snprintf(out, n, "Seat  Status     Owner\n");
-    for (int i = 1; i <= NUM_RESOURCES && off < n; i++) {
+    for (int i = 1; i <= NUM_SEATS && off < n; i++) {
         char ob[16];
         off += (size_t)snprintf(out + off, n - off, "%-5d %-10s %s\n", i,
-                                table[i].status == AVAILABLE ? "AVAILABLE" : "RESERVED",
-                                owner_str(table[i].owner, ob, sizeof ob));
+                                seats[i].status == AVAILABLE ? "AVAILABLE" : "RESERVED",
+                                owner_str(seats[i].owner, ob, sizeof ob));
     }
     slog(wid, "listed all resources");
     cs_leave(wid);
@@ -139,13 +139,13 @@ static void cmd_list(int wid, char *out, size_t n)
 static void cmd_status(int wid, int rid, char *out, size_t n)
 {
     cs_enter(wid);
-    if (table[rid].status == AVAILABLE) {
+    if (seats[rid].status == AVAILABLE) {
         snprintf(out, n, "Seat %d: AVAILABLE", rid);
-        slog(wid, "Resource %d status: AVAILABLE", rid);
+        slog(wid, "Seat %d status: AVAILABLE", rid);
     } else {
-        int owner = table[rid].owner;
+        int owner = seats[rid].owner;
         snprintf(out, n, "Seat %d: RESERVED by Client-%d", rid, owner);
-        slog(wid, "Resource %d status: RESERVED by Client-%d", rid, owner);
+        slog(wid, "Seat %d status: RESERVED by Client-%d", rid, owner);
     }
     cs_leave(wid);
 }
@@ -158,23 +158,23 @@ static void cmd_reserve(int wid, int cid, int rid, unsigned *seed, char *out, si
 {
     cs_enter(wid);
 
-    int st = table[rid].status;                       /* (1) CHECK  */
-    slog(wid, "check Resource %d: %s", rid, st == AVAILABLE ? "AVAILABLE" : "RESERVED");
+    int st = seats[rid].status;                       /* (1) CHECK  */
+    slog(wid, "check Seat %d: %s", rid, st == AVAILABLE ? "AVAILABLE" : "RESERVED");
 
     if (st == AVAILABLE) {
         random_delay(seed);                           /* ขยาย Race Window */
 
-        table[rid].status = RESERVED;                 /* (2) UPDATE */
-        table[rid].owner  = cid;
-        int g = __sync_add_and_fetch(&table[rid].grants, 1);
+        seats[rid].status = RESERVED;                 /* (2) UPDATE */
+        seats[rid].owner  = cid;
+        int g = __sync_add_and_fetch(&seats[rid].grants, 1);
 
-        slog(wid, "Resource %d reserved by Client-%d", rid, cid);
+        slog(wid, "Seat %d reserved by Client-%d", rid, cid);
         if (g > 1)
-            slog(wid, "*** RACE CONDITION DETECTED: Resource %d was granted %d times ***", rid, g);
+            slog(wid, "*** RACE CONDITION DETECTED: Seat %d was granted %d times ***", rid, g);
         snprintf(out, n, "SUCCESS: Seat %d reserved by Client-%d", rid, cid);
     } else {
-        int owner = table[rid].owner;
-        slog(wid, "Resource %d already reserved by Client-%d", rid, owner);
+        int owner = seats[rid].owner;
+        slog(wid, "Seat %d already reserved by Client-%d", rid, owner);
         snprintf(out, n, "FAILED: Seat %d already reserved by Client-%d", rid, owner);
     }
 
@@ -184,18 +184,18 @@ static void cmd_reserve(int wid, int cid, int rid, unsigned *seed, char *out, si
 static void cmd_cancel(int wid, int cid, int rid, char *out, size_t n)
 {
     cs_enter(wid);
-    if (table[rid].status == AVAILABLE) {
-        slog(wid, "Resource %d is not reserved, nothing to cancel", rid);
+    if (seats[rid].status == AVAILABLE) {
+        slog(wid, "Seat %d is not reserved, nothing to cancel", rid);
         snprintf(out, n, "FAILED: Seat %d is not reserved", rid);
-    } else if (table[rid].owner != cid) {
-        int owner = table[rid].owner;
-        slog(wid, "Client-%d cannot cancel Resource %d (owner is Client-%d)", cid, rid, owner);
+    } else if (seats[rid].owner != cid) {
+        int owner = seats[rid].owner;
+        slog(wid, "Client-%d cannot cancel Seat %d (owner is Client-%d)", cid, rid, owner);
         snprintf(out, n, "FAILED: Seat %d belongs to Client-%d", rid, owner);
     } else {
-        table[rid].status = AVAILABLE;
-        table[rid].owner  = 0;
-        table[rid].grants = 0;
-        slog(wid, "Resource %d cancelled by Client-%d", rid, cid);
+        seats[rid].status = AVAILABLE;
+        seats[rid].owner  = 0;
+        seats[rid].grants = 0;
+        slog(wid, "Seat %d cancelled by Client-%d", rid, cid);
         snprintf(out, n, "SUCCESS: Seat %d cancelled", rid);
     }
     cs_leave(wid);
@@ -210,11 +210,11 @@ static void process(int wid, const Msg *req, Msg *rep, unsigned *seed)
     memcpy(cmd, req->cmd, sizeof cmd);
     cmd[sizeof cmd - 1] = '\0';
     int cid = req->client_id;
-    int rid = req->resource_id;
+    int rid = req->seat_id;
 
     memset(rep, 0, sizeof *rep);
     rep->client_id   = cid;
-    rep->resource_id = rid;
+    rep->seat_id = rid;
     memcpy(rep->cmd, cmd, sizeof rep->cmd);
 
     int needs_id = !strcmp(cmd, "STATUS") || !strcmp(cmd, "RESERVE") || !strcmp(cmd, "CANCEL");
@@ -223,8 +223,8 @@ static void process(int wid, const Msg *req, Msg *rep, unsigned *seed)
     else
         slog(wid, "received %s from Client-%d", cmd, cid);
 
-    if (needs_id && (rid < 1 || rid > NUM_RESOURCES)) {
-        snprintf(rep->text, sizeof rep->text, "ERROR: seat number must be 1-%d", NUM_RESOURCES);
+    if (needs_id && (rid < 1 || rid > NUM_SEATS)) {
+        snprintf(rep->text, sizeof rep->text, "ERROR: seat number must be 1-%d", NUM_SEATS);
         slog(wid, "invalid resource id %d", rid);
         return;
     }
@@ -348,7 +348,7 @@ int main(int argc, char **argv)
     sigaction(SIGTERM, &sa, NULL);
 
     slog(0, "started: workers=%d, sync=%s, request queue=%s, resources=%d",
-         num_workers, sync_on ? "ON (mutex)" : "OFF (race possible)", REQ_QUEUE_NAME, NUM_RESOURCES);
+         num_workers, sync_on ? "ON (mutex)" : "OFF (race possible)", REQ_QUEUE_NAME, NUM_SEATS);
 
     pthread_t tid[MAX_WORKERS];
     for (int i = 0; i < num_workers; i++)
