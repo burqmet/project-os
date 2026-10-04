@@ -476,7 +476,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    // กำหนดให้ server หยุด worker
+    // ถ้าได้รับ signal พวกนี้ให้ server หยุด
     signal(SIGINT, handle_signal);
     signal(SIGTERM, handle_signal);
 
