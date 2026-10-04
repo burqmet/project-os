@@ -50,7 +50,7 @@ trap cleanup EXIT
 
 sleep 1
 
-// ตรวจว่า Server ยังทำงานอยู่ไหม
+# ตรวจว่า Server ยังทำงานอยู่ไหม
 if ! kill -0 "$SERVER_PID" 2>/dev/null; then
     echo "Server failed to start:"
     cat "$SERVER_LOG"
@@ -65,7 +65,7 @@ pids=()
 # ส่งคำสั่งให้ Client
 for i in $(seq 1 "$CLIENTS"); do
     printf "RESERVE $SEAT\nQUIT\n" | ./client "$i" \
-        > >(tee "$OUT/exp${EXP}_client${i}.out") 2>&1 &
+        > "$OUT/exp${EXP}_client${i}.out" 2>&1 &
     pids+=($!)
 done
 
