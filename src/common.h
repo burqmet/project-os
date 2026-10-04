@@ -1,25 +1,49 @@
 #ifndef COMMON_H
 #define COMMON_H
 
-/* ---------- POSIX Message Queue settings ---------- */
-#define REQ_QUEUE_NAME   "/cinema_req"          /* Request Queue: ทุก Client ส่งเข้าคิวนี้ ทุก Worker รับจากคิวนี้ */
-#define REPLY_QUEUE_FMT  "/cinema_reply_%d"     /* Reply Queue ของ Client แต่ละตัว (Client เป็นคนสร้าง)         */
-#define REQ_MAXMSG       10                     /* จำนวนข้อความสูงสุดในคิว (ค่าเริ่มต้นของ Linux/Docker คือ 10)  */
-#define REPLY_MAXMSG     4
-#define MAX_CLIENT_ID    900
+/* request queue ที่ client ทุกตัวใช้ส่งคำสั่งให้ Server
+response queue ของแต่ละ client */
+#define REQUEST_QUEUE "/reserve_seat_request"
+#define RESPONSE_QUEUE "/reserve_seat_response_%d"
 
-/* ---------- Reservation settings ---------- */
-#define NUM_SEATS        20                     /* ที่นั่ง 1-20 */
+// จำนวนข้อความสูงสุดที่สามารถเก็บได้
+#define REQUEST_MAXMSG 10
+#define RESPONSE_MAXMSG 4
 
-/* ---------- Message structure (ใช้ทั้ง Request และ Reply) ----------
- * POSIX Message Queue ไม่มี mtype จึงไม่ต้องมีฟิลด์ long นำหน้า
- * และใช้คิวแยกสำหรับ Reply ของ Client แต่ละตัวแทน
- */
+#define NUM_CLIENT 5
+#define NUM_WORKERS 3
+#define NUM_SEATS 20
+
+#define MAX_COMMAND 16
+#define MAX_RESPONSE 1024
+
+typedef enum {
+    AVAILABLE,
+    RESERVED
+} SeatStatus;
+
+typedef enum {
+    SUCCESS,
+    FAILED
+} ResponseStatus;
+
+typedef enum {
+    NO_MUTEX = 0,
+    USE_MUTEX = 1
+} MutexStatus;
+
 typedef struct {
     int  client_id;
-    int  seat_id;         /* หมายเลขที่นั่ง (0 ถ้าคำสั่งไม่ใช้) */
-    char cmd[16];          /* LIST | STATUS | RESERVE | CANCEL | QUIT */
-    char text[1024];       /* ข้อความตอบกลับจาก Server */
-} Msg;
+    int  seat_id;
+    char cmd[MAX_COMMAND];
+} Request;
+
+typedef struct {
+    int  client_id;
+    int  seat_id;
+    char cmd[MAX_COMMAND];
+    ResponseStatus response_status;
+    char text[MAX_RESPONSE];
+} Response;
 
 #endif

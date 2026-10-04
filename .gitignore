@@ -72,4 +72,4 @@ receiver_output.log
 .DS_Store
 
 # ===== ผลลัพธ์การทดลอง =====
-experiments/results/*.txt
+results/
