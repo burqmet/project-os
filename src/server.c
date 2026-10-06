@@ -60,22 +60,20 @@ void random_delay() {
 }
 
 // สร้างและแสดง log การทำงาน Worker
-void log_message(int worker_id, int client_id, const char *cmd, int seat_id, const char *message) {
+void log_message(int worker_id, int client_id, const char *message) {
     struct timespec time;
     // เก็บเวลาปัจจุบันลง time
     clock_gettime(CLOCK_REALTIME, &time);
 
     struct tm *time_info = localtime(&time.tv_sec);
 
-    printf("[%02d:%02d:%02d.%03ld] [Worker %d] [Client %d] | %s | Seat %d | %s\n",
+    printf("[%02d:%02d:%02d.%03ld] [Worker %d] [Client %d] | %s\n",
         time_info->tm_hour,
         time_info->tm_min,
         time_info->tm_sec,
         time.tv_nsec / 1000000,
         worker_id,
         client_id,
-        cmd,
-        seat_id,
         message
     );
     // แสดง log ทันที
@@ -94,12 +92,7 @@ void *worker(void *arg);
 // สร้าง worker thread
 void create_workers() {
     for (int i = 0; i < num_active_workers; i++) {
-        pthread_create(
-            &threads[i],
-            NULL,
-            worker,
-            &worker_ids[i]
-        );
+        pthread_create(&threads[i], NULL, worker, &worker_ids[i]);
     }
 }
 
@@ -110,12 +103,7 @@ void *worker(void *arg) {
 
     while (server_running) {
         // รับ request จาก request queue
-        ssize_t bytes_received = mq_receive(
-            request_queue,
-            (char *)&request,
-            sizeof(request),
-            NULL
-        );
+        ssize_t bytes_received = mq_receive(request_queue, (char *)&request, sizeof(request), NULL);
         if (bytes_received == -1) {
             if (!server_running) {
                 break;
@@ -138,66 +126,43 @@ void *worker(void *arg) {
         
         // LIST: ขอดูข้อมูลทุกที่นั่ง
         if (strcmp(request.cmd, "LIST") == 0) {
-            response.seat_id = -1;
-            response.response_status = SUCCESS;
+
+            char log_text[128];
+            snprintf(log_text, sizeof(log_text), "received LIST request from Client %d", request.client_id);
+            log_message(worker_id, request.client_id, log_text);
 
             if (use_mutex == USE_MUTEX) {
                 pthread_mutex_lock(&reservation_mutex);
-                log_message(
-                    worker_id,
-                    request.client_id,
-                    request.cmd,
-                    response.seat_id,
-                    "ENTER CRITICAL SECTION"
-                );
+                log_message(worker_id, request.client_id, "entering critical section");
             } else {
-                log_message(
-                    worker_id,
-                    request.client_id,
-                    request.cmd,
-                    response.seat_id,
-                    "CHECK START"
+                log_message(worker_id, request.client_id, "entering critical section (no mutex)"
                 );
             }
 
-            strcpy(response.text, "Seat Status: \n");
+            char response_text[MAX_RESPONSE];
+            response_text[0] = '\0';
 
             for (int i = 0; i < NUM_SEATS; i++) {
-                char seat_info[64];
-
+                char seat_text[64];
                 if (seats[i].seat_status == AVAILABLE) {
-                    snprintf(
-                        seat_info,
-                        sizeof(seat_info),
-                        "Seat %d: AVAILABLE\n", seats[i].id
-                    );
+                    snprintf(seat_text, sizeof(seat_text), "Seat %d: AVAILABLE\n",seats[i].id);
                 } else {
-                    snprintf(
-                        seat_info,
-                        sizeof(seat_info),
-                        "Seat %d: RESERVED by Client %d\n", seats[i].id, seats[i].client_id
-                    );
+                    snprintf(seat_text, sizeof(seat_text), "Seat %d RESERVED by Client %d\n", seats[i].id, seats[i].client_id);
                 }
-                strcat(response.text, seat_info);
+                strncat(response_text, seat_text, sizeof(response_text) - strlen(response_text) - 1);
             }
+
+            strcpy(response.text, response_text);
+            response.response_status = SUCCESS;
+                        
             if (use_mutex == USE_MUTEX) {
-                log_message(
-                    worker_id,
-                    request.client_id,
-                    request.cmd,
-                    response.seat_id,
-                    "EXIT CRITICAL SECTION"
-                );
+                log_message(worker_id, request.client_id, "leaving critical section");
+
                 pthread_mutex_unlock(&reservation_mutex);
-            }  else {
-                log_message(
-                    worker_id,
-                    request.client_id,
-                    request.cmd,
-                    response.seat_id,
-                    "CHECK END"
-                );
+            } else {
+                log_message(worker_id, request.client_id, "leaving critical section (no mutex)");
             }
+
         }
 
         // STATUS: ขอดูสถานะที่นั่งนั้น ๆ
@@ -207,55 +172,36 @@ void *worker(void *arg) {
             if (request.seat_id < 1 || request.seat_id > NUM_SEATS) {
                 strcpy(response.text, "Invalid seat ID.");
             } else {
+                char log_text[128];
+                snprintf(log_text, sizeof(log_text), "received STATUS %d request from Client %d", request.seat_id, request.client_id);
+                log_message(worker_id, request.client_id, log_text);
+
                 if (use_mutex == USE_MUTEX) {
                     pthread_mutex_lock(&reservation_mutex);
-                    log_message(
-                        worker_id,
-                        request.client_id,
-                        request.cmd,
-                        request.seat_id,
-                        "ENTER CRITICAL SECTION"
-                    );
+                    log_message(worker_id, request.client_id, "entering critical section");
                 } else {
-                    log_message(
-                        worker_id,
-                        request.client_id,
-                        request.cmd,
-                        request.seat_id,
-                        "CHECK START"
-                    );
+                    log_message(worker_id, request.client_id, "entering critical section (no mutex)");
                 }
+
                 if (seats[seat_index].seat_status == AVAILABLE) {
-                    snprintf(
-                        response.text,
-                        sizeof(response.text),
-                        "Seat %d: AVAILABLE", request.seat_id
-                    );
+                    snprintf(log_text, sizeof(log_text), "check Seat %d: AVAILABLE", request.seat_id);
+                    log_message(worker_id, request.client_id, log_text);
+                    
+                    snprintf(response.text, sizeof(response.text), "Seat %d: AVAILABLE", request.seat_id);
                 } else {
-                    snprintf(
-                        response.text,
-                        sizeof(response.text),
-                        "Seat %d: RESERVED by Client %d", request.seat_id, seats[seat_index].client_id
-                    );
+                    snprintf(log_text, sizeof(log_text), "check Seat %d: RESERVED", request.seat_id);
+                    log_message(worker_id, request.client_id, log_text);
+
+                    snprintf(response.text, sizeof(response.text), "Seat %d RESERVED", request.seat_id);
                 }
+
                 response.response_status = SUCCESS;
+
                 if (use_mutex == USE_MUTEX) {
-                    log_message(
-                        worker_id,
-                        request.client_id,
-                        request.cmd,
-                        request.seat_id,
-                        "EXIT CRITICAL SECTION"
-                    );
+                    log_message(worker_id, request.client_id, "leaving critical section");
                     pthread_mutex_unlock(&reservation_mutex);
                 } else {
-                    log_message(
-                        worker_id,
-                        request.client_id,
-                        request.cmd,
-                        request.seat_id,
-                        "CHECK END"
-                    );
+                    log_message(worker_id, request.client_id, "leaving critical section (no mutex)");
                 }
             }
         }
@@ -267,61 +213,47 @@ void *worker(void *arg) {
             if (request.seat_id < 1 || request.seat_id > NUM_SEATS) {
                 strcpy(response.text, "Invalid seat ID.");
             } else {
+                char log_text[128];
+                snprintf(log_text, sizeof(log_text), "received RESERVE %d request from Client %d", request.seat_id, request.client_id);
+                log_message(worker_id, request.client_id, log_text);
+
                 if (use_mutex == USE_MUTEX) {
                     pthread_mutex_lock(&reservation_mutex);
-                    log_message(
-                        worker_id,
-                        request.client_id,
-                        request.cmd,
-                        request.seat_id,
-                        "ENTER CRITICAL SECTION"
-                    );
+                    log_message(worker_id, request.client_id, "entering critical section");
                 } else {
-                    log_message(
-                        worker_id,
-                        request.client_id,
-                        request.cmd,
-                        request.seat_id,
-                        "CHECK START"
-                    );
+                    log_message(worker_id, request.client_id, "entering critical section (no mutex)");
                 }
+
                 if (seats[seat_index].seat_status == AVAILABLE) {
+                    snprintf(log_text, sizeof(log_text), "check Seat %d: AVAILABLE", request.seat_id);
+                    log_message(worker_id, request.client_id, log_text);
+
                     random_delay();
+
                     seats[seat_index].seat_status = RESERVED;
                     seats[seat_index].client_id = request.client_id;
+
+                    snprintf(log_text, sizeof(log_text), "Seat %d reserved by Client %d", request.seat_id, request.client_id);
+                    log_message(worker_id, request.client_id, log_text);
+
                     response.response_status = SUCCESS;
-                    snprintf(
-                        response.text,
-                        sizeof(response.text),
-                        "Seat %d reserved successfully.", request.seat_id
-                    );
+                    snprintf(response.text, sizeof(response.text), "Seat %d reserved successfully.", request.seat_id);
                 } else {
+                    snprintf(log_text, sizeof(log_text), "check Seat %d: RESERVED by Client %d", request.seat_id, seats[seat_index].client_id);
+                    log_message(worker_id, request.client_id, log_text);
+
+                    snprintf(log_text, sizeof(log_text), "Seat %d already reserved", request.seat_id);
+                    log_message(worker_id, request.client_id, log_text);
+
                     response.response_status = FAILED;
-                    snprintf(
-                        response.text,
-                        sizeof(response.text),
-                        "Seat %d is already reserved by Client %d.",
-                        request.seat_id,
-                        seats[seat_index].client_id
-                    );
+                    snprintf(response.text, sizeof(response.text), "Seat %d is already reserved.", request.seat_id);
                 }
+
                 if (use_mutex == USE_MUTEX) {
-                    log_message(
-                        worker_id,
-                        request.client_id,
-                        request.cmd,
-                        request.seat_id,
-                        "EXIT CRITICAL SECTION"
-                    );
+                    log_message( worker_id, request.client_id, "leaving critical section");
                     pthread_mutex_unlock(&reservation_mutex);
                 } else {
-                    log_message(
-                        worker_id,
-                        request.client_id,
-                        request.cmd,
-                        request.seat_id,
-                        "CHECK/UPDATE END"
-                    );
+                    log_message(worker_id, request.client_id, "leaving critical section (no mutex)");
                 }
             }
         }
@@ -333,77 +265,58 @@ void *worker(void *arg) {
             if (request.seat_id < 1 || request.seat_id > NUM_SEATS) {
                 strcpy(response.text, "Invalid seat ID.");
             } else {
+                char log_text[128];
+                snprintf(log_text, sizeof(log_text), "received CANCEL %d request from Client %d", request.seat_id, request.client_id);
+                log_message(worker_id, request.client_id, log_text);
+
                 if (use_mutex == USE_MUTEX) {
                     pthread_mutex_lock(&reservation_mutex);
-                    log_message(
-                        worker_id,
-                        request.client_id,
-                        request.cmd,
-                        request.seat_id,
-                        "ENTER CRITICAL SECTION"
-                    );
+                    log_message(worker_id, request.client_id, "entering critical section");
                 } else {
-                    log_message(
-                        worker_id,
-                        request.client_id,
-                        request.cmd,
-                        request.seat_id,
-                        "CHECK START"
-                    );
+                    log_message(worker_id, request.client_id, "entering critical section (no mutex)");
                 }
+
                 if (seats[seat_index].seat_status == AVAILABLE) {
+                    snprintf(log_text, sizeof(log_text), "check Seat %d: AVAILABLE", request.seat_id);
+                    log_message(worker_id, request.client_id, log_text);
+
                     response.response_status = FAILED;
-                    snprintf(
-                        response.text,
-                        sizeof(response.text),
-                        "Seat %d is not reserved.", request.seat_id
-                    );
+                    snprintf(response.text, sizeof(response.text), "Seat %d is not reserved.", request.seat_id);
                 } else if (seats[seat_index].client_id != request.client_id) {
+                    snprintf(log_text, sizeof(log_text), "check Seat %d RESERVED by Client %d", request.seat_id, seats[seat_index].client_id);
+                    log_message(worker_id, request.client_id, log_text);
+
+                    snprintf(log_text, sizeof(log_text), "Seat %d is reserved by another client",request.seat_id);
+                    log_message(worker_id, request.client_id, log_text);
+
                     response.response_status = FAILED;
-                    snprintf(
-                        response.text,
-                        sizeof(response.text),
-                        "Seat %d is reserved by another client.", request.seat_id
-                    );
+                    snprintf(response.text, sizeof(response.text), "Seat %d is reserved by another client.", request.seat_id);
                 } else {
+                    snprintf(log_text, sizeof(log_text), "check Seat %d: RESERVED by Client %d", request.seat_id, seats[seat_index].client_id);
+                    log_message(worker_id, request.client_id, log_text);
+
                     seats[seat_index].seat_status = AVAILABLE;
                     seats[seat_index].client_id = -1;
+
+                    snprintf(log_text, sizeof(log_text), "Seat %d cancelled by Client %d", request.seat_id, request.client_id );
+                    log_message(worker_id, request.client_id, log_text);
+
                     response.response_status = SUCCESS;
-                    snprintf(
-                        response.text,
-                        sizeof(response.text),
-                        "Seat %d cancelled successfully.", request.seat_id
-                    );
+                    snprintf(response.text, sizeof(response.text), "Seat %d cancelled successfully.", request.seat_id);
                 }
+
                 if (use_mutex == USE_MUTEX) {
-                    log_message(
-                        worker_id,
-                        request.client_id,
-                        request.cmd,
-                        request.seat_id,
-                        "EXIT CRITICAL SECTION"
-                    );
+                    log_message(worker_id, request.client_id, "leaving critical section");
 
                     pthread_mutex_unlock(&reservation_mutex);
                 } else {
-                    log_message(
-                        worker_id,
-                        request.client_id,
-                        request.cmd,
-                        request.seat_id,
-                        "CHECK END"
-                    );
+                    log_message(worker_id, request.client_id, "leaving critical section (no mutex)");
                 }
             }
         }
 
         char response_queue_name[64];
-        snprintf(
-            response_queue_name,
-            sizeof(response_queue_name),
-            RESPONSE_QUEUE,
-            response.client_id
-        );
+        snprintf(response_queue_name, sizeof(response_queue_name), RESPONSE_QUEUE, response.client_id);
         // เปิด response queue
         mqd_t response_queue = mq_open(
             response_queue_name,

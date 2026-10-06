@@ -3,7 +3,9 @@ FROM debian:bookworm
 WORKDIR /app
 
 RUN apt-get update \
-    && apt-get install -y gcc libc6-dev make procps \
+    && apt-get install -y gcc libc6-dev make procps tzdata \
+    && ln -sf /usr/share/zoneinfo/Asia/Bangkok /etc/localtime \
+    && echo "Asia/Bangkok" > /etc/timezone \
     && rm -rf /var/lib/apt/lists/*
 
 COPY src/ ./src/
