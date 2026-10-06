@@ -12,57 +12,73 @@
 - POSIX Message Queue
 - pthread
 - pthread_mutex
+- Docker
+- Debian
 
 ---
 
 ## 1. วิธี Build Docker Image
 
 ```bash
-docker build -t project-os .
+docker build -t os-server .
 ```
 
 ## 2. วิธี Run Container
-สำหรับการใช้งานระบบปกติ ให้เปิด Server container:
+สร้างและเปิด Container:
 ```bash
-docker run -d --name os-server --ipc=shareable project-os ./server 3
+docker run -d --name cinema-demo --ipc=shareable os-server bash
 ```
-ตรวจสอบ Server:
+ตรวจสอบว่า Container กำลังทำงาน:
 ```bash
-docker logs -f os-server
+docker ps
 ```
+เข้าสู่ Container:
+```bash
+docker exec -it cinema-demo bash
+```
+หมายเหตุ: Container cinema-demo ใช้สำหรับแชร์ IPC namespace ให้กับ Server และ Client เพื่อให้สามารถสื่อสารผ่าน POSIX Message Queue ได้
  
 ## 3. วิธีเปิด Server
-Server รองรับ 3 โหมดสำหรับการทดลอง โดยแต่ละ Mode ใช้สำหรับการทดลองแตกต่างกันตามหัวข้อ Race Condition
-Mode 1: 1 Worker, ไม่ใช้ Mutex:
+เข้าไปใน Container:
+```bash
+docker exec -it cinema-demo bash
+```
+จากนั้นเปิด Server โดยเลือก Mode ที่ต้องการ
+**Mode 1: 1 Worker, ไม่ใช้ Mutex:**
 ```bash
 ./server 1
 ```
-Mode 2: 3 Workers, ไม่ใช้ Mutex:
+**Mode 2: 3 Workers, ไม่ใช้ Mutex:**
 ```bash
 ./server 2
 ```
-Mode 3: 3 Workers, ใช้ Mutex:
+**Mode 3: 3 Workers, ใช้ Mutex:**
 ```bash
 ./server 3
 ```
+แต่ละ Mode ใช้สำหรับการทดลองที่แตกต่างกัน
  
 ## 4. วิธีเปิด Client หลายตัว
-เปิด Terminal ใหม่สำหรับ Client แต่ละตัว โดย Client ต้องใช้ IPC namespace เดียวกับ Server:
+เปิด Terminal ใหม่สำหรับ Client แต่ละตัว โดย Client ต้องใช้ IPC namespace เดียวกับ Server
+**Client 1**
 ```bash
-# Terminal 2
-docker run --rm -it --ipc=container:os-server project-os ./client 1
- 
-# Terminal 3
-docker run --rm -it --ipc=container:os-server project-os ./client 2
-
-# Terminal 4
-docker run --rm -it --ipc=container:os-server project-os ./client 3
- 
-# Terminal 5
-docker run --rm -it --ipc=container:os-server project-os ./client 4
-
-# Terminal 6
-docker run --rm -it --ipc=container:os-server project-os ./client 5
+docker run --rm -it --ipc=container:cinema-demo os-server ./client 1
+```
+**Client 2**
+```bash
+docker run --rm -it --ipc=container:cinema-demo os-server ./client 2
+```
+**Client 3**
+```bash
+docker run --rm -it --ipc=container:cinema-demo os-server ./client 3
+```
+**Client 4**
+```bash
+docker run --rm -it --ipc=container:cinema-demo os-server ./client 4
+```
+**Client 5**
+```bash
+docker run --rm -it --ipc=container:cinema-demo os-server ./client 5
 ```
 Client แต่ละตัวจะมี Response Queue เป็นของตัวเอง เพื่อรับผลตอบกลับจาก Server
  
@@ -102,23 +118,23 @@ typedef struct {
  
 ## 7. วิธีทดลอง Race Condition
  
-### วิธีอัตโนมัติ (แนะนำ) — ใช้ `experiment.sh`
+### วิธีอัตโนมัติ — ใช้ `experiment.sh`
 สคริปต์นี้จะ Compile โปรแกรม, เปิด Server, เปิด Client 5 ตัวเพื่อส่ง RESERVE ที่นั่งเดียวกันพร้อมกัน, สรุปผล และปิด Server ให้อัตโนมัติ
-ต้องรันใน Container ที่ไม่มี Server ตัวอื่นกำลังทำงานอยู่ เพราะ `experiment.sh` จะเปิดและปิด Server ให้โดยอัตโนมัติ
-เปิด Container สำหรับการทดลอง:
+**หมายเหตุ:** ต้องรันใน Container ที่ไม่มี Server ตัวอื่นกำลังทำงานอยู่ เพราะ `experiment.sh` จะเปิดและปิด Server ให้โดยอัตโนมัติ
+สร้าง Container สำหรับการทดลอง:
 ```bash
-docker run --rm -it project-os
+docker run --rm -it os-server
 ```
 จากนั้นรันการทดลองตาม Mode ที่ต้องการ:
-Experiment 1: 1 Worker, ไม่ใช้ Mutex — Sequential Baseline
+**Experiment 1: 1 Worker, ไม่ใช้ Mutex — Sequential Baseline**
 ```bash
 ./experiment.sh 1
 ```
-Experiment 2: 3 Workers, ไม่ใช้ Mutex — Concurrent และเกิด Race Condition
+**Experiment 2: 3 Workers, ไม่ใช้ Mutex — Concurrent และเกิด Race Condition**
 ```bash
 ./experiment.sh 2
 ```
-Experiment 3: 3 Workers, ใช้ Mutex — Concurrent และป้องกัน Race Condition
+**Experiment 3: 3 Workers, ใช้ Mutex — Concurrent และป้องกัน Race Condition**
 ```bash
 ./experiment.sh 3
 ```
@@ -128,7 +144,7 @@ CLIENTS=8 SEAT=15 ./experiment.sh 2
 ```
 ผลลัพธ์ของ Server และ Client แต่ละตัวจะถูกเก็บไว้ในโฟลเดอร์ results/
  
-### วิธีมือ (ถ้าต้องการทดสอบเอง)
+### วิธีมือ/ทดสอบเอง
 1. เปิด Server โดยเลือก Mode ที่ต้องการ เช่น
 ```bash
 ./server 2
